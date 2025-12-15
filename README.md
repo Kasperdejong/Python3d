@@ -34,5 +34,6 @@ python treeperson.py
 
 ## Run and Autoreload on script change (do this if you are actively working on the code and want to test as you go)
 
-run this in terminal. The filename has to be the one you're working on
+run this in terminal. The filename has to be the one you're working on. You still need to reload the browser when applying a change ctrl + shift + r for hard reload
+
 watchfiles "python handpuppets.py"

@@ -4,6 +4,7 @@ warnings.filterwarnings("ignore")
 import sys
 import traceback
 import os  
+import time 
 
 _original_print_exception = traceback.print_exception
 def silent_ssl_print_exception(etype, value, tb, limit=None, file=None, chain=True):
@@ -80,10 +81,12 @@ def overlay_image_alpha(img, img_overlay, x, y, width, height):
 class TreeGame:
     def __init__(self):
         self.tree_img = None
-        self.score = 0
-        self.growth_factor = 0.6 
+        self.start_growth = 0.6
+        self.growth_factor = self.start_growth
         self.max_growth = 3.5
-        self.tree_bbox = None 
+        self.tree_bbox = None
+        self.game_won = False
+        self.win_time = 0
         self.download_tree()
 
     def download_tree(self):
@@ -105,9 +108,18 @@ class TreeGame:
         self.tree_img[:] = [50, 200, 50, 255] 
 
     def grow(self):
-        self.score += 1
+        if self.game_won: return
+
         if self.growth_factor < self.max_growth:
             self.growth_factor += 0.05 
+        else:
+            self.game_won = True
+            self.win_time = time.time()
+
+    def reset(self):
+        self.growth_factor = self.start_growth
+        self.game_won = False
+        self.win_time = 0
 
     def draw_tree(self, frame, root_x, root_y):
         if self.tree_img is None: return
@@ -129,10 +141,60 @@ class TreeGame:
         y2 = root_y
         
         self.tree_bbox = (x1, y1, x2, y2)
+
+    def draw_interface(self, frame):
+        h, w = frame.shape[:2]
         
-        # Draw HUD
-        cv2.putText(frame, f"Biomass: {int(self.growth_factor * 100)} kg", (root_x + 80, root_y - 100), 
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (200, 255, 200), 2)
+        # 1. CALCULATE PROGRESS
+        progress = (self.growth_factor - self.start_growth) / (self.max_growth - self.start_growth)
+        progress = max(0.0, min(progress, 1.0))
+
+        # 2. DRAW BAR BACKGROUND
+        bar_x, bar_y = 50, 50
+        bar_w, bar_h = w - 100, 30
+        cv2.rectangle(frame, (bar_x, bar_y), (bar_x + bar_w, bar_y + bar_h), (50, 50, 50), -1)
+        cv2.rectangle(frame, (bar_x, bar_y), (bar_x + bar_w, bar_y + bar_h), (255, 255, 255), 2)
+
+        # 3. DRAW BAR FILL
+        fill_w = int(bar_w * progress)
+        if fill_w > 0:
+            color = (0, 255 * progress, 255 * (1-progress))
+            cv2.rectangle(frame, (bar_x, bar_y), (bar_x + fill_w, bar_y + bar_h), (0, 200, 50), -1)
+
+        # 4. TEXT STATS
+        pct_text = f"GROWTH: {int(progress * 100)}%"
+        cv2.putText(frame, pct_text, (bar_x, bar_y + 22), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+
+    def draw_win_screen(self, frame):
+        h, w = frame.shape[:2]
+        
+        # Dark overlay
+        overlay = frame.copy()
+        cv2.rectangle(overlay, (0, 0), (w, h), (0, 100, 0), -1)
+        cv2.addWeighted(overlay, 0.85, frame, 0.15, 0, frame)
+
+        # Big Text
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        text1 = "PHOTOSYNTHESIS"
+        text2 = "COMPLETE!"
+        
+        t1_size = cv2.getTextSize(text1, font, 2.5, 5)[0]
+        t2_size = cv2.getTextSize(text2, font, 2.5, 5)[0]
+
+        cv2.putText(frame, text1, ((w - t1_size[0])//2, h//2 - 20), font, 2.5, (150, 255, 150), 5)
+        cv2.putText(frame, text2, ((w - t2_size[0])//2, h//2 + 80), font, 2.5, (255, 255, 255), 5)
+
+        # Restart Timer
+        elapsed = time.time() - self.win_time
+        remaining = max(0, 5 - elapsed)
+        if remaining == 0:
+            self.reset()
+        else:
+            sub = f"Resetting ecosystem in {int(remaining)}..."
+            sub_size = cv2.getTextSize(sub, font, 1, 2)[0]
+            # Draw this near bottom center (now unobstructed)
+            cv2.putText(frame, sub, ((w - sub_size[0])//2, h - 50), font, 1, (200, 200, 200), 2)
+
 
 class SunOrb:
     def __init__(self, screen_w):
@@ -179,14 +241,20 @@ def background_thread():
         rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         results = holistic.process(rgb_frame)
 
-        # Darken bg
-        frame = cv2.convertScaleAbs(frame, alpha=0.65, beta=-30)
+        # 1. CHECK WIN CONDITION
+        if game.game_won:
+            game.draw_win_screen(frame)
+            _, buffer = cv2.imencode('.jpg', frame, [int(cv2.IMWRITE_JPEG_QUALITY), 60])
+            b64_string = base64.b64encode(buffer).decode('utf-8')
+            socketio.emit('new_frame', {'image': b64_string})
+            eventlet.sleep(0.01)
+            continue
 
-        # 1. SPAWN SUNS
+        # 2. SPAWN SUNS
         if random.random() < 0.1: 
             suns.append(SunOrb(w))
 
-        # 2. TRACK BODY
+        # 3. TRACK BODY
         collision_zones = [] 
         navel_coords = None
 
@@ -249,7 +317,7 @@ def background_thread():
                         cv2.circle(frame, r_wrist, 20, (0, 255, 0), -1)
                         collision_zones.append({'pos': r_wrist, 'r': 70})
 
-        # 3. UPDATE SUNS & CHECK ALL HITBOXES
+        # 4. UPDATE SUNS & CHECK ALL HITBOXES
         active_suns = []
         for sun in suns:
             sun.update()
@@ -284,7 +352,10 @@ def background_thread():
         
         suns = active_suns
 
-        # 4. ENCODE
+        # 5. DRAW UI (Progress Bar)
+        game.draw_interface(frame)
+
+        # 6. ENCODE
         _, buffer = cv2.imencode('.jpg', frame, [int(cv2.IMWRITE_JPEG_QUALITY), 60])
         b64_string = base64.b64encode(buffer).decode('utf-8')
         socketio.emit('new_frame', {'image': b64_string})
@@ -314,13 +385,22 @@ HTML_PAGE = """
         html, body { margin: 0; padding: 0; width: 100%; height: 100%; background-color: #111; overflow: hidden; font-family: 'Arial', sans-serif; }
         #video-container { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; justify-content: center; align-items: center; }
         img { width: 100%; height: 100%; object-fit: cover; display: block; }
+        
+        /* UPDATED INSTRUCTIONS STYLE */
         .overlay { 
-            position: absolute; bottom: 30px; left: 50%; transform: translateX(-50%);
-            color: #fff; text-align: center; text-shadow: 2px 2px 4px #000;
-            background: rgba(0, 50, 0, 0.6); padding: 20px; border-radius: 15px; border: 2px solid #4CAF50;
+            position: absolute; 
+            bottom: 15px; 
+            left: 15px; /* Bottom Left */
+            width: 250px; /* Smaller Width */
+            text-align: left;
+            background: rgba(0, 30, 0, 0.5); /* More transparent */
+            padding: 10px; 
+            border-radius: 10px; 
+            border: 1px solid #4CAF50;
         }
-        h1 { margin: 0 0 10px 0; color: #ADFF2F; text-transform: uppercase; letter-spacing: 2px; }
-        p { margin: 5px 0; font-size: 18px; }
+        h1 { margin: 0 0 5px 0; color: #ADFF2F; font-size: 16px; text-transform: uppercase; }
+        p { margin: 2px 0; font-size: 12px; color: #EEE; }
+        b { color: #FFF; }
     </style>
 </head>
 <body>
@@ -328,10 +408,10 @@ HTML_PAGE = """
         <img id="videoStream" src="" alt="Waiting for camera...">
     </div>
     <div class="overlay">
-        <h1>Full Body Photosynthesis</h1>
-        <p>1. Step back until your hips are visible.</p>
-        <p>2. Use your <b>Head (Big Hitbox!), Body, and Arms</b> to catch sun.</p>
-        <p>3. Let the tree absorb the light!</p>
+        <h1>Instructions</h1>
+        <p>1. Step back to show hips.</p>
+        <p>2. Use <b>Body & Arms</b> to catch sun.</p>
+        <p>3. Fill bar to win.</p>
     </div>
     <script>
         const socket = io();

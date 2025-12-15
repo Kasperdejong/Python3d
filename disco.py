@@ -113,7 +113,7 @@ def background_thread():
         # --- APPLY DARKNESS EFFECT (OPTIONAL) ---
         # We only darken the frame NOW, after the AI has already looked at it.
         if DARK_MODE:
-            frame = cv2.convertScaleAbs(frame, alpha=0.6, beta=-50)
+            frame = cv2.convertScaleAbs(frame, alpha=0.85, beta=-20)
 
         # 1. Analyze Frame
         binary_mask = None
