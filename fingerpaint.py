@@ -17,8 +17,7 @@ import numpy as np
 import base64
 import socket
 import os
-import random
-import math  # Added for distance calculation
+import math
 from flask import Flask, render_template_string
 from flask_socketio import SocketIO
 
@@ -26,12 +25,10 @@ app = Flask(__name__)
 socketio = SocketIO(app, cors_allowed_origins='*', async_mode='eventlet')
 
 # --- CONFIGURATION ---
-DETECT_CONF = 0.5 
-TRACK_CONF = 0.5
 MAX_HANDS = 4  
-DRAW_THRESHOLD = 100 # If hand moves >100px in 1 frame, don't draw (prevents laser beams)
+DRAW_THRESHOLD = 80 
 
-# --- UI ELEMENTS ---
+# --- UI CLASS ---
 class ColorHeader:
     def __init__(self, w):
         self.colors = [
@@ -66,38 +63,94 @@ class ColorHeader:
                 return self.colors[idx][0]
         return None
 
-# --- STATE MANAGER ---
-class HandStateManager:
-    def __init__(self):
-        self.states = {}
+# --- STICKY HAND LOGIC ---
+class StickyHand:
+    def __init__(self, id, start_color):
+        self.id = id
+        self.x = 0
+        self.y = 0
+        self.prev_x = 0
+        self.prev_y = 0
+        self.color = start_color
+        self.active = False 
+        self.landmarks = None
 
-    def get_state(self, hand_index):
-        if hand_index not in self.states:
-            # Assign colors based on index for variety
-            start_colors = [(0, 0, 255), (0, 255, 0), (255, 0, 0), (0, 255, 255)]
-            c = start_colors[hand_index % len(start_colors)]
-            self.states[hand_index] = {
-                'prev_x': 0, 
-                'prev_y': 0, 
-                'color': c
-            }
-        return self.states[hand_index]
+    def update(self, new_x, new_y, landmarks):
+        self.x = new_x
+        self.y = new_y
+        self.landmarks = landmarks
+        self.active = True
 
-    def reset_pos(self, hand_index):
-        if hand_index in self.states:
-            self.states[hand_index]['prev_x'] = 0
-            self.states[hand_index]['prev_y'] = 0
+    def reset_draw_pos(self):
+        # Call this when hand reappears so we don't draw a line from 0,0
+        self.prev_x = self.x
+        self.prev_y = self.y
+
+    def lost(self):
+        self.active = False
+        self.prev_x = 0
+        self.prev_y = 0
+
+def solve_hand_assignment(slots, detections):
+    """
+    Greedy Distance Matcher (Fixed for Drawing)
+    """
+    # NOTE: We DO NOT reset 'active' here anymore. 
+    # We only mark them lost if they are not assigned at the end.
+
+    possible_matches = []
+    
+    # 1. Calculate Distances
+    for det_idx, det in enumerate(detections):
+        det_x, det_y = det['x'], det['y']
+        
+        for slot_idx, slot in enumerate(slots):
+            # If slot is inactive (0,0), give it lower priority but still allow match
+            if slot.x == 0 and slot.y == 0:
+                dist = 9999
+            else:
+                dist = math.hypot(det_x - slot.x, det_y - slot.y)
+            
+            possible_matches.append((dist, slot_idx, det_idx))
+
+    # 2. Sort by distance (closest first)
+    possible_matches.sort(key=lambda x: x[0])
+
+    assigned_slots = set()
+    assigned_detections = set()
+
+    # 3. Assign
+    for dist, slot_idx, det_idx in possible_matches:
+        if slot_idx in assigned_slots or det_idx in assigned_detections:
+            continue
+        
+        det = detections[det_idx]
+        slot = slots[slot_idx]
+        
+        # FIX: If this slot was NOT active previously, reset the drawing line
+        # so we don't draw a laser beam from 0,0
+        if not slot.active:
+            slot.x = det['x']
+            slot.y = det['y']
+            slot.reset_draw_pos()
+
+        slot.update(det['x'], det['y'], det['lms'])
+        
+        assigned_slots.add(slot_idx)
+        assigned_detections.add(det_idx)
+
+    # 4. Handle Lost Hands
+    # Only mark as inactive if they were NOT assigned this frame
+    for i, slot in enumerate(slots):
+        if i not in assigned_slots:
+            slot.lost()
 
 # --- MAIN LOOP ---
 def background_thread():
     print(f"🎨 Multi-User Paint Active ({MAX_HANDS} Hands)")
     
     mp_hands = mp.solutions.hands
-    hands = mp_hands.Hands(
-        min_detection_confidence=DETECT_CONF, 
-        min_tracking_confidence=TRACK_CONF, 
-        max_num_hands=MAX_HANDS
-    )
+    hands = mp_hands.Hands(min_detection_confidence=0.6, min_tracking_confidence=0.6, max_num_hands=MAX_HANDS)
 
     cap = cv2.VideoCapture(0)
     cap.set(3, 1280); cap.set(4, 720)
@@ -105,77 +158,80 @@ def background_thread():
 
     img_canvas = np.zeros((h, w, 3), np.uint8)
     header = ColorHeader(w)
-    state_manager = HandStateManager()
+    
+    default_colors = [(0, 0, 255), (0, 255, 0), (255, 0, 0), (0, 255, 255)]
+    hand_slots = [StickyHand(i, default_colors[i]) for i in range(4)]
     
     while True:
         success, frame = cap.read()
         if not success: eventlet.sleep(0.1); continue
 
         frame = cv2.flip(frame, 1)
-        # Brighten slightly
+        # Brighten
         frame = cv2.convertScaleAbs(frame, alpha=1.1, beta=10)
-
         rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         results = hands.process(rgb)
         
-        seen_indices = set()
-
+        detections = []
         if results.multi_hand_landmarks:
-            for h_idx, hand_lms in enumerate(results.multi_hand_landmarks):
-                seen_indices.add(h_idx)
-                hand_data = state_manager.get_state(h_idx)
-
+            for hand_lms in results.multi_hand_landmarks:
+                wrist_x = int(hand_lms.landmark[0].x * w)
+                wrist_y = int(hand_lms.landmark[0].y * h)
                 lm_list = []
-                for id, lm in enumerate(hand_lms.landmark):
+                for lm in hand_lms.landmark:
                     lm_list.append((int(lm.x * w), int(lm.y * h)))
+                detections.append({'x': wrist_x, 'y': wrist_y, 'lms': lm_list})
 
-                if len(lm_list) != 0:
-                    x1, y1 = lm_list[8]  # Index Tip
-                    x2, y2 = lm_list[12] # Middle Tip
-                    
-                    index_up = lm_list[8][1] < lm_list[6][1]
-                    middle_up = lm_list[12][1] < lm_list[10][1]
+        # Run Sticky Logic
+        solve_hand_assignment(hand_slots, detections)
 
-                    # 1. SELECTION MODE (Two fingers)
-                    if index_up and middle_up:
-                        state_manager.reset_pos(h_idx)
-                        cv2.rectangle(frame, (x1-20, y1-20), (x2+20, y1+20), hand_data['color'], 2)
-                        cv2.putText(frame, "SELECT", (x1, y1-30), cv2.FONT_HERSHEY_SIMPLEX, 0.5, hand_data['color'], 2)
-                        
-                        new_col = header.get_color_at(x1, y1)
-                        if new_col is not None:
-                            hand_data['color'] = new_col
+        # Process Active Hands
+        for hand in hand_slots:
+            if not hand.active:
+                continue 
+            
+            lm_list = hand.landmarks
+            x1, y1 = lm_list[8]  # Index Tip
+            x2, y2 = lm_list[12] # Middle Tip
+            
+            index_up = lm_list[8][1] < lm_list[6][1]
+            middle_up = lm_list[12][1] < lm_list[10][1]
 
-                    # 2. DRAW MODE (Index only)
-                    elif index_up and not middle_up:
-                        cv2.circle(frame, (x1, y1), 10, hand_data['color'], -1)
-                        
-                        px, py = hand_data['prev_x'], hand_data['prev_y']
-                        
-                        # Initialize if new
-                        if px == 0 and py == 0:
-                            px, py = x1, y1
-                        
-                        # --- FIX: DISTANCE CHECK ---
-                        # Calculate distance moved in this 1 frame
-                        dist = math.hypot(x1 - px, y1 - py)
-                        
-                        # Only draw if distance is reasonable (prevents cross-screen laser beams)
-                        if dist < DRAW_THRESHOLD:
-                            color = hand_data['color']
-                            thickness = 40 if color == (0,0,0) else 15
-                            cv2.line(img_canvas, (px, py), (x1, y1), color, thickness)
-                        
-                        # Always update position
-                        hand_data['prev_x'], hand_data['prev_y'] = x1, y1
+            # A. SELECTION MODE (Two fingers up)
+            if index_up and middle_up:
+                hand.reset_draw_pos() 
+                cv2.rectangle(frame, (x1-25, y1-25), (x2+25, y1+25), hand.color, 2)
+                cv2.putText(frame, "SELECT", (x1, y1-35), cv2.FONT_HERSHEY_SIMPLEX, 0.5, hand.color, 2)
+                
+                new_col = header.get_color_at(x1, y1)
+                if new_col is not None:
+                    hand.color = new_col
 
-                    else:
-                        state_manager.reset_pos(h_idx)
+            # B. DRAW MODE (Index only)
+            elif index_up and not middle_up:
+                cv2.circle(frame, (x1, y1), 10, hand.color, -1)
+                
+                # Logic: If prev is 0 (just appeared), set to current
+                if hand.prev_x == 0 and hand.prev_y == 0:
+                    hand.prev_x, hand.prev_y = x1, y1
+                
+                dist = math.hypot(x1 - hand.prev_x, y1 - hand.prev_y)
+                
+                # Only draw if distance is valid (not a teleport)
+                if dist < DRAW_THRESHOLD:
+                    color = hand.color
+                    thickness = 40 if color == (0,0,0) else 15
+                    # DRAWING HAPPENS HERE
+                    cv2.line(img_canvas, (hand.prev_x, hand.prev_y), (x1, y1), color, thickness)
+                else:
+                    hand.reset_draw_pos()
 
-        # Reset unseen hands
-        for existing_idx in state_manager.states:
-            if existing_idx not in seen_indices:
-                state_manager.reset_pos(existing_idx)
+                # Update Previous for next frame
+                hand.prev_x, hand.prev_y = x1, y1
+
+            # C. IDLE
+            else:
+                hand.reset_draw_pos()
 
         # Merge
         img_gray = cv2.cvtColor(img_canvas, cv2.COLOR_BGR2GRAY)
@@ -190,9 +246,10 @@ def background_thread():
         cv2.rectangle(frame, (w-100, h-50), (w, h), (0,0,200), -1)
         cv2.putText(frame, "CLEAR", (w-90, h-15), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255,255,255), 2)
         
-        if results.multi_hand_landmarks:
-            for hand_lms in results.multi_hand_landmarks:
-                if hand_lms.landmark[8].x * w > w-100 and hand_lms.landmark[8].y * h > h-50:
+        for hand in hand_slots:
+            if hand.active and hand.landmarks:
+                ix, iy = hand.landmarks[8] 
+                if ix > w-100 and iy > h-50:
                      img_canvas = np.zeros((h, w, 3), np.uint8)
 
         _, buffer = cv2.imencode('.jpg', frame, [int(cv2.IMWRITE_JPEG_QUALITY), 60])
@@ -215,10 +272,10 @@ HTML = """
 <div style="position:relative;width:100%;height:100%">
     <img id="vid" style="width:100%;height:100%;object-fit:contain">
     <div style="position:absolute; bottom:20px; left:20px; color:white; background:rgba(0,0,0,0.6); padding:15px; border-radius:10px;">
-        <h2 style="margin:0 0 10px 0;">🎨 Multi-User Paint</h2>
+        <h2 style="margin:0 0 10px 0;">🎨 4-Player Paint</h2>
         👉 <b>Index Finger:</b> Draw<br>
         ✌️ <b>Two Fingers:</b> Select Color<br>
-        🖐 <b>Supports up to 4 people!</b>
+        🧠 <b>Memory:</b> Hands remember their colors!
     </div>
 </div>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>

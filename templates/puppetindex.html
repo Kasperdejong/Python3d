@@ -2,12 +2,15 @@
 <html>
 
 <head>
-    <title>Hybrid Puppet Stream</title>
+    <title>2-Player Smart Puppet</title>
 </head>
 
 <body>
 
-    <div id="ui">Status: <span id="st">CONNECTING</span></div>
+    <div id="ui">
+        P1 (Left): <span id="st1">WAITING</span><br>
+        P2 (Right): <span id="st2">WAITING</span>
+    </div>
     <canvas id="gameCanvas"></canvas>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
@@ -15,21 +18,19 @@
         const socket = io();
         const canvas = document.getElementById('gameCanvas');
         const ctx = canvas.getContext('2d');
-        const status = document.getElementById('st');
+        const st1 = document.getElementById('st1');
+        const st2 = document.getElementById('st2');
 
         const DANCE_COUNT = 7;
 
-        // Resize logic
         function resize() { canvas.width = window.innerWidth; canvas.height = window.innerHeight; }
         window.addEventListener('resize', resize);
         resize();
 
-        // --- 1. ASSET LOADING ---
+        // --- 1. ASSETS ---
         const sprites = {};
         function load(name, url) {
-            const img = new Image();
-            img.src = url;
-            sprites[name] = img;
+            const img = new Image(); img.src = url; sprites[name] = img;
         }
 
         load('NEUTRAL', '/assets/handpuppet_idle.png');
@@ -38,36 +39,26 @@
         load('SHY', '/assets/handpuppet_shy.png');
         for (let i = 0; i < DANCE_COUNT; i++) load(`DANCE_${i}`, `/assets/pixel_dance_${i}.png`);
 
-        // --- 2. DATA HANDLING ---
-        // We use 'activeBackground' to hold the image we are currently seeing
+        // --- 2. DATA ---
         let activeBackground = null;
-
-        let pData = { x: 0.5, y: 0.5, state: 'NEUTRAL' };
+        let pData = [];
         let danceIdx = 0;
 
-        // FIXED VIDEO HANDLER (Double Buffering)
         socket.on('video_frame', (arrayBuffer) => {
             const blob = new Blob([arrayBuffer], { type: 'image/jpeg' });
             const url = URL.createObjectURL(blob);
-
-            // Create a temporary image in memory
             const tempImg = new Image();
-
             tempImg.onload = () => {
-                if (activeBackground && activeBackground.src) {
-                    URL.revokeObjectURL(activeBackground.src);
-                }
-
+                if (activeBackground && activeBackground.src) URL.revokeObjectURL(activeBackground.src);
                 activeBackground = tempImg;
             };
-
-            // Start loading
             tempImg.src = url;
         });
 
-        socket.on('puppet_data', (d) => {
-            pData = d;
-            status.innerText = d.state;
+        socket.on('puppet_data', (dataList) => {
+            pData = dataList;
+            if (pData[0]) st1.innerText = pData[0].state;
+            if (pData[1]) st2.innerText = pData[1].state;
         });
 
         // --- 3. RENDER LOOP ---
@@ -75,42 +66,41 @@
 
         function draw() {
             ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-            // A. Draw Background
-            // We only draw 'activeBackground' which is GUARANTEED to be loaded
             const cw = canvas.width, ch = canvas.height;
 
+            // A. Draw Background
             if (activeBackground) {
                 const ratio = Math.max(cw / activeBackground.width, ch / activeBackground.height);
                 const nw = activeBackground.width * ratio;
                 const nh = activeBackground.height * ratio;
-                const ox = (cw - nw) / 2;
-                const oy = (ch - nh) / 2;
-                ctx.drawImage(activeBackground, ox, oy, nw, nh);
+                ctx.drawImage(activeBackground, (cw - nw) / 2, (ch - nh) / 2, nw, nh);
             } else {
-                // Only draw black if we have NEVER received a frame yet (start of app)
                 ctx.fillStyle = "#222"; ctx.fillRect(0, 0, cw, ch);
             }
 
-            // B. Draw Puppet
-            let key = pData.state;
-            if (key === 'DANCING') key = `DANCE_${danceIdx}`;
+            // B. Draw Puppets
+            pData.forEach(player => {
+                let key = player.state;
+                if (key === 'DANCING') key = `DANCE_${danceIdx}`;
 
-            let sprite = sprites[key];
-            if (!sprite || !sprite.complete || sprite.naturalWidth === 0) sprite = sprites['NEUTRAL'];
-            if (!sprite || !sprite.complete || sprite.naturalWidth === 0) sprite = sprites['HAPPY'];
+                let sprite = sprites[key];
+                if (!sprite || !sprite.complete || sprite.naturalWidth === 0) sprite = sprites['NEUTRAL'];
+                if (!sprite || !sprite.complete || sprite.naturalWidth === 0) sprite = sprites['HAPPY'];
 
-            if (sprite && sprite.complete && sprite.naturalWidth > 0) {
-                const px = pData.x * cw;
-                const py = pData.y * ch;
-                const size = cw * 0.25;
-                const aspect = sprite.width / sprite.height;
+                if (sprite && sprite.complete && sprite.naturalWidth > 0) {
+                    const px = player.x * cw;
+                    const py = player.y * ch;
+                    const size = cw * 0.25;
+                    const aspect = sprite.width / sprite.height;
 
-                if (aspect > 0) {
-                    const h = size / aspect;
-                    ctx.drawImage(sprite, px - size / 2, py - h / 2, size, h);
+                    if (aspect > 0) {
+                        const h = size / aspect;
+                        // Draw with opacity if they are just placeholders (Optional)
+                        ctx.drawImage(sprite, px - size / 2, py - h / 2, size, h);
+                    }
                 }
-            }
+            });
+
             requestAnimationFrame(draw);
         }
         requestAnimationFrame(draw);
