@@ -17,8 +17,6 @@
         const ctx = canvas.getContext('2d');
         const status = document.getElementById('st');
 
-        // --- CONFIGURATION ---
-        // CHANGE THIS NUMBER if you add more frames later!
         const DANCE_COUNT = 7;
 
         // Resize logic
@@ -28,7 +26,6 @@
 
         // --- 1. ASSET LOADING ---
         const sprites = {};
-
         function load(name, url) {
             const img = new Image();
             img.src = url;
@@ -39,19 +36,33 @@
         load('HAPPY', '/assets/handpuppet_happy.png');
         load('ANGRY', '/assets/handpuppet_angry.png');
         load('SHY', '/assets/handpuppet_shy.png');
-
-        // Load EXACTLY the number of frames you have
-        for (let i = 0; i < DANCE_COUNT; i++) {
-            load(`DANCE_${i}`, `/assets/pixel_dance_${i}.png`);
-        }
+        for (let i = 0; i < DANCE_COUNT; i++) load(`DANCE_${i}`, `/assets/pixel_dance_${i}.png`);
 
         // --- 2. DATA HANDLING ---
-        let bgImage = new Image();
+        // We use 'activeBackground' to hold the image we are currently seeing
+        let activeBackground = null;
+
         let pData = { x: 0.5, y: 0.5, state: 'NEUTRAL' };
         let danceIdx = 0;
 
-        socket.on('video_frame', (d) => {
-            bgImage.src = 'data:image/jpeg;base64,' + d.image;
+        // FIXED VIDEO HANDLER (Double Buffering)
+        socket.on('video_frame', (arrayBuffer) => {
+            const blob = new Blob([arrayBuffer], { type: 'image/jpeg' });
+            const url = URL.createObjectURL(blob);
+
+            // Create a temporary image in memory
+            const tempImg = new Image();
+
+            tempImg.onload = () => {
+                if (activeBackground && activeBackground.src) {
+                    URL.revokeObjectURL(activeBackground.src);
+                }
+
+                activeBackground = tempImg;
+            };
+
+            // Start loading
+            tempImg.src = url;
         });
 
         socket.on('puppet_data', (d) => {
@@ -60,24 +71,24 @@
         });
 
         // --- 3. RENDER LOOP ---
-        setInterval(() => {
-            danceIdx = (danceIdx + 1) % DANCE_COUNT;
-        }, 100);
+        setInterval(() => { danceIdx = (danceIdx + 1) % DANCE_COUNT; }, 100);
 
         function draw() {
-            // Clear screen
             ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-            // A. Draw Background Video
+            // A. Draw Background
+            // We only draw 'activeBackground' which is GUARANTEED to be loaded
             const cw = canvas.width, ch = canvas.height;
-            if (bgImage.complete && bgImage.naturalWidth > 0) {
-                const ratio = Math.max(cw / bgImage.width, ch / bgImage.height);
-                const nw = bgImage.width * ratio;
-                const nh = bgImage.height * ratio;
+
+            if (activeBackground) {
+                const ratio = Math.max(cw / activeBackground.width, ch / activeBackground.height);
+                const nw = activeBackground.width * ratio;
+                const nh = activeBackground.height * ratio;
                 const ox = (cw - nw) / 2;
                 const oy = (ch - nh) / 2;
-                ctx.drawImage(bgImage, ox, oy, nw, nh);
+                ctx.drawImage(activeBackground, ox, oy, nw, nh);
             } else {
+                // Only draw black if we have NEVER received a frame yet (start of app)
                 ctx.fillStyle = "#222"; ctx.fillRect(0, 0, cw, ch);
             }
 
@@ -86,16 +97,12 @@
             if (key === 'DANCING') key = `DANCE_${danceIdx}`;
 
             let sprite = sprites[key];
-
-            // FALLBACKS: If frame missing, default to NEUTRAL, then HAPPY
             if (!sprite || !sprite.complete || sprite.naturalWidth === 0) sprite = sprites['NEUTRAL'];
             if (!sprite || !sprite.complete || sprite.naturalWidth === 0) sprite = sprites['HAPPY'];
 
-            // DRAW if valid
             if (sprite && sprite.complete && sprite.naturalWidth > 0) {
                 const px = pData.x * cw;
                 const py = pData.y * ch;
-
                 const size = cw * 0.25;
                 const aspect = sprite.width / sprite.height;
 
@@ -104,10 +111,8 @@
                     ctx.drawImage(sprite, px - size / 2, py - h / 2, size, h);
                 }
             }
-
             requestAnimationFrame(draw);
         }
-
         requestAnimationFrame(draw);
     </script>
 

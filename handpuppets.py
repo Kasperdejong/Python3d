@@ -12,12 +12,11 @@ eventlet.monkey_patch()
 import cv2
 import mediapipe as mp
 import numpy as np
-import base64
+# import base64  <-- We don't need this anymore!
 import socket
 import os
 import math
 import time
-# Added send_from_directory to serve images to the browser
 from flask import Flask, render_template, send_from_directory
 from flask_socketio import SocketIO
 
@@ -49,26 +48,51 @@ def get_finger_status(lm_list):
     return fingers 
 
 def detect_gesture(lm_list):
-    x1, y1 = lm_list[4][1], lm_list[4][2]
-    x2, y2 = lm_list[8][1], lm_list[8][2]
+    # 1. Get Coordinates
+    x1, y1 = lm_list[4][1], lm_list[4][2] # Thumb Tip
+    x2, y2 = lm_list[8][1], lm_list[8][2] # Index Tip
+    
+    # 2. Calculate Pinch Distance
     dist_pinch = math.hypot(x2 - x1, y2 - y1)
+    
+    # 3. Calculate Hand Size (Wrist #0 to Middle Finger MCP #9)
+    # This creates a "Ruler" that grows/shrinks with your hand distance
+    w_x, w_y = lm_list[0][1], lm_list[0][2]
+    m_x, m_y = lm_list[9][1], lm_list[9][2]
+    hand_size = math.hypot(m_x - w_x, m_y - w_y)
+
+    # 4. Check Fingers (Up/Down)
     fingers = get_finger_status(lm_list)
     count = fingers.count(True)
 
+    # --- LOGIC ---
+    
+    # FIST = ANGRY (Priority 1)
     if count == 0: return "ANGRY"
-    if dist_pinch < 60: return "SHY"
+
+    # PINCH = SHY (Priority 2)
+    # The Threshold is now 20% of your hand size.
+    # It requires a much deliberate pinch now.
+    if dist_pinch < (hand_size * 0.20): 
+        return "SHY"
+
+    # POINT = DANCE (Priority 3)
+    # Index up, others down
     if fingers[0] and not any(fingers[1:]): return "DANCING"
+
+    # OPEN HAND = HAPPY (Priority 4)
     if count >= 3: return "HAPPY"
+
     return "NEUTRAL"
 
 # --- MAIN LOOP ---
 puppet_logic = PuppetLogic()
 
 def background_thread():
-    print("Hybrid Stream Active: Sending Video + Data")
+    print("Hybrid Stream Active: Sending BINARY Video + Data")
     hands = mp.solutions.hands.Hands(min_detection_confidence=0.7, max_num_hands=1)
     cap = cv2.VideoCapture(0)
-    cap.set(3, 640) # Lower res for speed, browser scales it up
+    cap.set(3, 640) 
     cap.set(4, 480)
 
     while True:
@@ -87,10 +111,8 @@ def background_thread():
         if results.multi_hand_landmarks:
             for hand_lms in results.multi_hand_landmarks:
                 wrist = hand_lms.landmark[0]
-                # Normalize coordinates (0.0 to 1.0) so they work on any screen size
                 tx = wrist.x
-                ty = wrist.y - 0.2 # Offset up
-                
+                ty = wrist.y - 0.2 
                 lm_list = [[id, int(lm.x * w), int(lm.y * h)] for id, lm in enumerate(hand_lms.landmark)]
                 gesture = detect_gesture(lm_list)
 
@@ -103,14 +125,14 @@ def background_thread():
             'state': puppet_logic.state
         }
         
-        # 3. Prepare Video Packet (Raw Background)
-        # We compress this more because it's just a background now
+        # 3. Prepare Video Packet (BINARY BLOB)
+        # We compress to JPG, then convert to raw bytes immediately
         _, buffer = cv2.imencode('.jpg', frame, [int(cv2.IMWRITE_JPEG_QUALITY), 50])
-        b64_video = base64.b64encode(buffer).decode('utf-8')
+        byte_data = buffer.tobytes() 
 
         # 4. Emit Both
         socketio.emit('puppet_data', data_packet)
-        socketio.emit('video_frame', {'image': b64_video})
+        socketio.emit('video_frame', byte_data) 
         
         eventlet.sleep(0.015)
 
@@ -122,7 +144,6 @@ def get_ip():
 @app.route('/')
 def index(): return render_template('puppetindex.html')
 
-# NEW: This allows the HTML to load images from your assets folder
 @app.route('/assets/<path:path>')
 def send_assets(path):
     return send_from_directory('assets', path)
@@ -134,6 +155,5 @@ if __name__ == "__main__":
     ip = get_ip()
     print(f"Server: https://{ip}:5000") 
     
-    # Add ssl_context here
     try: socketio.run(app, host='0.0.0.0', port=5000, certfile='cert.pem', keyfile='key.pem')
     except: os._exit(0)
