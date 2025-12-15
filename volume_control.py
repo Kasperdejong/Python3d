@@ -3,6 +3,8 @@ warnings.filterwarnings("ignore")
 
 # --- SILENCE NOISE ---
 import sys, traceback, logging
+import shutil # Added to check for installed tools
+
 log = logging.getLogger('werkzeug'); log.setLevel(logging.ERROR)
 def silent_ssl(etype, value, tb, limit=None, file=None, chain=True):
     if "SSLV3" in str(value) or "HTTP_REQUEST" in str(value): return
@@ -36,6 +38,12 @@ class SystemControlManager:
         self.target_bright = 0.75 
         self.running = True
         
+        # Check if 'brightness' tool is installed
+        self.has_bright_tool = shutil.which("brightness") is not None
+        if not self.has_bright_tool:
+            print("\n⚠️  WARNING: 'brightness' tool not found!")
+            print("👉  To fix: Open terminal and run: brew install brightness\n")
+
         # Start background workers
         threading.Thread(target=self._volume_worker, daemon=True).start()
         threading.Thread(target=self._brightness_worker, daemon=True).start()
@@ -44,13 +52,13 @@ class SystemControlManager:
         self.target_vol = int(max(0, min(100, round(val))))
 
     def set_brightness(self, val):
+        # Calculate float 0.0 to 1.0
         self.target_bright = max(0.0, min(1.0, val / 100.0))
 
     def _volume_worker(self):
         last_vol = -1
         while self.running:
-            # HYSTERESIS: Only update if changed by at least 2 steps (prevents 49-50-49 spam)
-            # OR if it's 0 or 100 (exact endpoints)
+            # HYSTERESIS: Prevent flickering between 49/50
             diff = abs(self.target_vol - last_vol)
             if diff >= 2 or (diff > 0 and (self.target_vol in [0, 100])):
                 try:
@@ -63,20 +71,26 @@ class SystemControlManager:
     def _brightness_worker(self):
         last_bright = -1.0
         while self.running:
+            if not self.has_bright_tool:
+                time.sleep(1)
+                continue
+
             # Only update if change is significant (> 1%)
-            if abs(self.target_bright - last_bright) > 0.015:
+            if abs(self.target_bright - last_bright) > 0.01:
                 try:
-                    subprocess.run(f"brightness {self.target_bright}", 
-                                   shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    # 'brightness' command takes a float 0-1
+                    cmd = f"brightness {self.target_bright:.2f}"
+                    subprocess.run(cmd, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                     last_bright = self.target_bright
-                except: pass
+                except Exception as e:
+                    print(f"Brightness Error: {e}")
             time.sleep(0.1) 
 
 sys_manager = SystemControlManager()
 
 # --- PROCESSING ---
 def background_thread():
-    print("🚀 Stable Gesture System Active")
+    print("Stable Gesture System Active")
     
     mp_hands = mp.solutions.hands
     mp_draw = mp.solutions.drawing_utils
@@ -143,7 +157,6 @@ def background_thread():
                     target_y = max(bar_top, min(bar_bottom, target_y))
                     
                     # FIX 1: Heavy Smoothing (0.1 instead of 0.3)
-                    # This makes it ignore quick jitter
                     s['bar'] = (0.9 * s['bar']) + (0.1 * target_y)
                     
                     # Calculate exact percentage float
@@ -151,7 +164,6 @@ def background_thread():
                     s['val'] = pct
 
                     # FIX 2: Stable Display Value (Deadzone)
-                    # Only update the stored integer if it changed by > 0.5 to stop 49.9 <-> 50.0 flip
                     if abs(pct - s['display_val']) > 0.8:
                         s['display_val'] = int(round(pct))
 
