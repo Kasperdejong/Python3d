@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Hybrid Puppet Stream</title>
+</head>
+
+<body>
+
+    <div id="ui">Status: <span id="st">CONNECTING</span></div>
+    <canvas id="gameCanvas"></canvas>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+    <script>
+        const socket = io();
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const status = document.getElementById('st');
+
+        // --- CONFIGURATION ---
+        // CHANGE THIS NUMBER if you add more frames later!
+        const DANCE_COUNT = 7;
+
+        // Resize logic
+        function resize() { canvas.width = window.innerWidth; canvas.height = window.innerHeight; }
+        window.addEventListener('resize', resize);
+        resize();
+
+        // --- 1. ASSET LOADING ---
+        const sprites = {};
+
+        function load(name, url) {
+            const img = new Image();
+            img.src = url;
+            sprites[name] = img;
+        }
+
+        load('NEUTRAL', '/assets/handpuppet_idle.png');
+        load('HAPPY', '/assets/handpuppet_happy.png');
+        load('ANGRY', '/assets/handpuppet_angry.png');
+        load('SHY', '/assets/handpuppet_shy.png');
+
+        // Load EXACTLY the number of frames you have
+        for (let i = 0; i < DANCE_COUNT; i++) {
+            load(`DANCE_${i}`, `/assets/pixel_dance_${i}.png`);
+        }
+
+        // --- 2. DATA HANDLING ---
+        let bgImage = new Image();
+        let pData = { x: 0.5, y: 0.5, state: 'NEUTRAL' };
+        let danceIdx = 0;
+
+        socket.on('video_frame', (d) => {
+            bgImage.src = 'data:image/jpeg;base64,' + d.image;
+        });
+
+        socket.on('puppet_data', (d) => {
+            pData = d;
+            status.innerText = d.state;
+        });
+
+        // --- 3. RENDER LOOP ---
+        setInterval(() => {
+            danceIdx = (danceIdx + 1) % DANCE_COUNT;
+        }, 100);
+
+        function draw() {
+            // Clear screen
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // A. Draw Background Video
+            const cw = canvas.width, ch = canvas.height;
+            if (bgImage.complete && bgImage.naturalWidth > 0) {
+                const ratio = Math.max(cw / bgImage.width, ch / bgImage.height);
+                const nw = bgImage.width * ratio;
+                const nh = bgImage.height * ratio;
+                const ox = (cw - nw) / 2;
+                const oy = (ch - nh) / 2;
+                ctx.drawImage(bgImage, ox, oy, nw, nh);
+            } else {
+                ctx.fillStyle = "#222"; ctx.fillRect(0, 0, cw, ch);
+            }
+
+            // B. Draw Puppet
+            let key = pData.state;
+            if (key === 'DANCING') key = `DANCE_${danceIdx}`;
+
+            let sprite = sprites[key];
+
+            // FALLBACKS: If frame missing, default to NEUTRAL, then HAPPY
+            if (!sprite || !sprite.complete || sprite.naturalWidth === 0) sprite = sprites['NEUTRAL'];
+            if (!sprite || !sprite.complete || sprite.naturalWidth === 0) sprite = sprites['HAPPY'];
+
+            // DRAW if valid
+            if (sprite && sprite.complete && sprite.naturalWidth > 0) {
+                const px = pData.x * cw;
+                const py = pData.y * ch;
+
+                const size = cw * 0.25;
+                const aspect = sprite.width / sprite.height;
+
+                if (aspect > 0) {
+                    const h = size / aspect;
+                    ctx.drawImage(sprite, px - size / 2, py - h / 2, size, h);
+                }
+            }
+
+            requestAnimationFrame(draw);
+        }
+
+        requestAnimationFrame(draw);
+    </script>
+
+    <style>
+        body {
+            margin: 0;
+            background: #111;
+            overflow: hidden;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+        }
+
+        canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+        }
+
+        #ui {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            color: white;
+            font-family: sans-serif;
+            background: rgba(0, 0, 0, 0.5);
+            padding: 10px;
+            border-radius: 5px;
+            pointer-events: none;
+            z-index: 10;
+        }
+    </style>
+</body>
+
+</html>
