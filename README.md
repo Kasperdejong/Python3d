@@ -1,11 +1,36 @@
-## Activate venv to run stuff (macbook)
+## Prerequisites
 
+Make sure you have Python 3.10+ installed. You can check by running:
+python --version
+
+## Clone the Repository
+
+git clone https://github.com/MCW-creative-agency/Python3d.git
+cd Python3d
+
+## Create a Virtual Environment
+
+It is best practice to use a virtual environment so libraries don't mess up your system.
+
+# On macOS / Linux:
+
+python3 -m venv venv
 source venv/bin/activate
 
-## Open a demo of your choice
+# On Windows:
 
-for example "python plantgrower.py" in the terminal
-python plantgrower.py
+python -m venv venv
+venv\Scripts\activate
+
+## Install Dependencies
+
+This project relies on MediaPipe, OpenCV, Flask, and Eventlet. Install them automatically using the requirements file:
+pip install -r requirements.txt
+
+## How to Run
+
+Make sure your webcam is connected.
+python treeperson.py
 
 ## Run and Autoreload on script change (do this if you are actively working on the code and want to test as you go)
 
