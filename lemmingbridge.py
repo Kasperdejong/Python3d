@@ -45,6 +45,17 @@ class SimpleStabilizer:
 # --- MATH ---
 def dist(p1, p2): return math.hypot(p1[0]-p2[0], p1[1]-p2[1])
 
+# Distance from point (px, py) to line segment (p1, p2)
+def dist_point_line(px, py, p1, p2):
+    x1, y1 = p1; x2, y2 = p2
+    l2 = (x1-x2)**2 + (y1-y2)**2
+    if l2 == 0: return math.hypot(px-x1, py-y1)
+    t = ((px-x1)*(x2-x1) + (py-y1)*(y2-y1)) / l2
+    t = max(0, min(1, t))
+    proj_x = x1 + t * (x2-x1)
+    proj_y = y1 + t * (y2-y1)
+    return math.hypot(px-proj_x, py-proj_y)
+
 # Get Y coordinate on line at X
 def get_line_y(p1, p2, x):
     x1, y1 = p1; x2, y2 = p2
@@ -96,11 +107,19 @@ class Button:
         self.rect = (x, y, w, h); self.text = text; self.color = color
         self.cooldown = 0; self.hover_state = False
     
-    def draw(self, frame):
+    def draw(self, frame, active=False):
         x, y, w, h = self.rect
-        col = (min(self.color[0]+50,255), min(self.color[1]+50,255), min(self.color[2]+50,255)) if self.hover_state else self.color
-        cv2.rectangle(frame, (x, y), (x+w, y+h), col, -1)
-        cv2.rectangle(frame, (x, y), (x+w, y+h), (255,255,255), 2)
+        # If active (like eraser toggle), make it brighter
+        base_c = self.color
+        if active: base_c = (min(self.color[0]+80,255), min(self.color[1]+80,255), min(self.color[2]+80,255))
+        elif self.hover_state: base_c = (min(self.color[0]+50,255), min(self.color[1]+50,255), min(self.color[2]+50,255))
+        
+        cv2.rectangle(frame, (x, y), (x+w, y+h), base_c, -1)
+        # Thick border if active
+        border_c = (0,255,255) if active else (255,255,255)
+        thick = 4 if active else 2
+        cv2.rectangle(frame, (x, y), (x+w, y+h), border_c, thick)
+        
         font_scale = 0.7
         (tw, th), _ = cv2.getTextSize(self.text, cv2.FONT_HERSHEY_SIMPLEX, font_scale, 2)
         cv2.putText(frame, self.text, (x + (w-tw)//2, y + (h+th)//2), cv2.FONT_HERSHEY_SIMPLEX, font_scale, (255,255,255), 2)
@@ -131,116 +150,55 @@ class Walker:
         self.frame_count += 1
 
         # --- STEP 1: HORIZONTAL MOVEMENT & WALL CHECKS ---
-        
-        # INVISIBLE LEFT WALL
-        if self.x < 10:
-            self.x = 10
-            self.vx = abs(self.vx) # Force Right
-        
+        if self.x < 10: self.x = 10; self.vx = abs(self.vx)
         next_x = self.x + self.vx
         hit_wall = False
         
         for p1, p2 in platforms:
-            # Check Slope: Is it steep? (Height > Width)
-            # 0.5 factor means if it's > 45 degrees, it's a wall
-            dx = abs(p2[0] - p1[0])
-            dy = abs(p2[1] - p1[1])
-            
-            is_steep = dy > dx * 0.8 # It is a wall
-            
+            dx = abs(p2[0] - p1[0]); dy = abs(p2[1] - p1[1])
+            is_steep = dy > dx * 0.8
             if is_steep:
-                # Are we vertically within the wall's height?
                 min_y, max_y = min(p1[1], p2[1]), max(p1[1], p2[1])
                 if self.y > min_y - 10 and self.y < max_y:
-                    # Are we hitting it horizontally?
                     wall_x = get_line_x(p1, p2, self.y)
-                    
-                    # Distance to wall
-                    dist_x = abs(next_x - wall_x)
-                    
-                    if dist_x < 15:
-                        # Ensure we are hitting the face, not the back
+                    if abs(next_x - wall_x) < 15:
                         if (self.vx > 0 and self.x < wall_x) or (self.vx < 0 and self.x > wall_x):
                             hit_wall = True
         
-        if hit_wall:
-            self.vx *= -1 # Bounce
-        else:
-            self.x = next_x # Apply movement
+        if hit_wall: self.vx *= -1
+        else: self.x = next_x
 
         # --- STEP 2: VERTICAL MOVEMENT & FLOOR CHECKS ---
-
-        # If we are walking on ground
         if self.on_ground:
-            # We treat ground as a state where we just snap Y to the floor
-            # But we must check if the floor still exists or if we walked off
-            
-            found_floor_below = False
-            best_y = 99999
-            
+            found_floor_below = False; best_y = 99999
             for p1, p2 in platforms:
-                 # Is it Flat?
-                dx = abs(p2[0] - p1[0])
-                dy = abs(p2[1] - p1[1])
+                dx = abs(p2[0] - p1[0]); dy = abs(p2[1] - p1[1])
                 is_flat = dx >= dy * 0.8
-                
                 if is_flat:
                     min_x, max_x = min(p1[0], p2[0]), max(p1[0], p2[0])
-                    # Are we within X bounds?
                     if self.x >= min_x - 5 and self.x <= max_x + 5:
                         line_y = get_line_y(p1, p2, self.x)
-                        # Are we close to it?
                         if abs(self.y - line_y) < 20:
-                            if line_y < best_y:
-                                best_y = line_y
-                                found_floor_below = True
+                            if line_y < best_y: best_y = line_y; found_floor_below = True
 
-            if found_floor_below:
-                self.y = best_y - 1
-                self.vy = 0
-            else:
-                self.on_ground = False # Walked off edge
+            if found_floor_below: self.y = best_y - 1; self.vy = 0
+            else: self.on_ground = False
         
-        # If Falling
         if not self.on_ground:
-            self.vy += 0.8
-            self.y += self.vy
-            
-            # Check for landing
-            feet_y = self.y
-            best_y_dist = 9999
-            landed = False
-            land_y = 0
-            
+            self.vy += 0.8; self.y += self.vy
+            feet_y = self.y; best_y_dist = 9999; landed = False; land_y = 0
             for p1, p2 in platforms:
                 min_x, max_x = min(p1[0], p2[0]), max(p1[0], p2[0])
-                
                 if self.x < min_x - 5 or self.x > max_x + 5: continue
-                
-                # Slope Check
-                dx = abs(p2[0] - p1[0])
-                dy = abs(p2[1] - p1[1])
+                dx = abs(p2[0] - p1[0]); dy = abs(p2[1] - p1[1])
                 is_flat = dx >= dy * 0.8
-                
                 if is_flat:
                     line_y = get_line_y(p1, p2, self.x)
-                    dist_y = line_y - feet_y # Positive means floor is below feet
-                    
-                    # Logic: We fall INTO the floor.
-                    # Previous frame we were above, now we are below OR we are just close
-                    # We accept slightly negative dist_y (tunneling fix)
+                    dist_y = line_y - feet_y
                     if abs(dist_y) < 20 and self.vy >= 0:
-                        if abs(dist_y) < best_y_dist:
-                            best_y_dist = abs(dist_y)
-                            land_y = line_y
-                            landed = True
+                        if abs(dist_y) < best_y_dist: best_y_dist = abs(dist_y); land_y = line_y; landed = True
+            if landed: self.on_ground = True; self.y = land_y - 1; self.vy = 0
 
-            if landed:
-                self.on_ground = True
-                self.y = land_y - 1
-                self.vy = 0
-
-        # Bounds
         if self.y > h + 50: self.state = "DEAD"
         if self.x > w - 20: self.state = "SAVED"
 
@@ -266,9 +224,18 @@ def background_thread():
     count_spawn = 0; MAX_LEM = 10
     s_saved = 0; s_died = 0
 
-    btn_go = Button(w//2 - 60, 20, 120, 50, "START", (0, 200, 0))
-    btn_rst = Button(w//2 + 80, 20, 120, 50, "CLEAR", (0, 0, 200))
+    # UI Buttons - CENTERED
+    b_w, b_h, gap = 120, 50, 20
+    total_w = 3 * b_w + 2 * gap
+    start_x = (w - total_w) // 2
+
+    btn_go = Button(start_x, 20, b_w, b_h, "START", (0, 200, 0))
+    btn_rst = Button(start_x + b_w + gap, 20, b_w, b_h, "CLEAR", (0, 0, 200))
+    btn_eraser = Button(start_x + 2*b_w + 2*gap, 20, b_w, b_h, "ERASE", (150, 0, 150)) # Purple Eraser
+    
     btn_rpl = Button(w//2 - 100, h//2 + 60, 200, 60, "REPLAY", (0, 150, 0))
+
+    eraser_mode = False # Toggle state for eraser
 
     static = [((0, h//2+50), (150, h//2+50)), ((w-150, h//2+50), (w, h//2+50))]
     was_pinching = False 
@@ -292,20 +259,32 @@ def background_thread():
                     rx, ry = h_lms.landmark[idx].x * w, h_lms.landmark[idx].y * h
                     coords[idx] = stabilizer.update(h_idx, idx, rx, ry)
                 
-                pointers.append(coords[8]) 
+                pointer_pos = coords[8]
+                pointers.append(pointer_pos) 
                 
                 if not is_game_over:
-                    if dist(coords[4], coords[8]) < 30:
-                        is_pinching = True
-                        cv2.circle(frame, coords[8], 10, (0,0,255), -1)
+                    # Eraser Logic: If active, delete bridges near pointer
+                    if eraser_mode:
+                        cv2.circle(frame, pointer_pos, 15, (0, 0, 255), 2) # Red ring
+                        cv2.circle(frame, pointer_pos, 4, (0, 0, 255), -1)
+                        # Check collision with lines
+                        for bridge in built_bridges[:]: # Iterate copy to allow removal
+                            d = dist_point_line(pointer_pos[0], pointer_pos[1], bridge[0], bridge[1])
+                            if d < 20: # Threshold to delete
+                                built_bridges.remove(bridge)
                     else:
-                        p_start, p_end = coords[5], coords[8]
-                        if dist(p_start, p_end) > 15:
-                            ghosts.append((p_start, p_end))
-                        cv2.circle(frame, coords[8], 5, (0,255,255), -1)
+                        # Draw Mode logic
+                        if dist(coords[4], coords[8]) < 30:
+                            is_pinching = True
+                            cv2.circle(frame, coords[8], 10, (0,0,255), -1)
+                        else:
+                            p_start, p_end = coords[5], coords[8]
+                            if dist(p_start, p_end) > 15:
+                                ghosts.append((p_start, p_end))
+                            cv2.circle(frame, coords[8], 5, (0,255,255), -1)
 
-        # Build
-        if not is_game_over:
+        # Build (Only if not erasing)
+        if not is_game_over and not eraser_mode:
             if is_pinching and not was_pinching:
                 if len(ghosts) > 0:
                     built_bridges.extend(ghosts)
@@ -328,21 +307,28 @@ def background_thread():
                 if not is_game_active:
                     is_game_active = True; count_spawn = 1
                     active_walkers.append(Walker(50, h//2)); last_spawn = time.time()
+                    eraser_mode = False # Turn off eraser when starting
+            
             if btn_rst.update(pointers):
                 built_bridges = []; active_walkers = []
                 is_game_active = False; count_spawn = 0
                 s_saved = 0; s_died = 0
+                eraser_mode = False
+
+            if btn_eraser.update(pointers):
+                eraser_mode = not eraser_mode # Toggle Eraser
         else:
             if btn_rpl.update(pointers):
                 built_bridges = []; active_walkers = []
                 is_game_active = False; is_game_over = False
                 count_spawn = 0; s_saved = 0; s_died = 0
+                eraser_mode = False
 
         # Draw
         for p1, p2 in static: cv2.rectangle(frame, (int(p1[0]),int(p1[1])), (int(p2[0]),int(p1[1])+20), (50,150,50), -1)
         for p1, p2 in built_bridges: cv2.line(frame, p1, p2, (180,180,180), 8)
 
-        if not is_pinching and not is_game_over:
+        if not is_pinching and not is_game_over and not eraser_mode:
             for p1, p2 in ghosts: draw_dotted_line(frame, p1, p2, (0,255,255), 2)
 
         for walker in active_walkers[:]:
@@ -352,8 +338,13 @@ def background_thread():
             elif walker.state == "DEAD": s_died += 1; active_walkers.remove(walker)
 
         if not is_game_over:
-            btn_go.draw(frame); btn_rst.draw(frame)
+            btn_go.draw(frame)
+            btn_rst.draw(frame)
+            btn_eraser.draw(frame, active=eraser_mode) # Draw with active state check
+            
             cv2.putText(frame, f"SAVED: {s_saved}  DIED: {s_died}", (20, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255,255,255), 2)
+            if eraser_mode:
+                cv2.putText(frame, "ERASER MODE ON", (w//2 - 90, 100), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (100, 0, 255), 2)
         else:
             overlay = frame.copy()
             cv2.rectangle(overlay, (0, 0), (w, h), (0,0,0), -1)
