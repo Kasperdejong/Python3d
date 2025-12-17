@@ -5,7 +5,7 @@ python --version
 
 ## Clone the Repository
 
-git clone https://github.com/MCW-creative-agency/Python3d.git
+git clone https://github.com/Kasperdejong/Python3d.git
 cd Python3d
 
 ## Create a Virtual Environment
