@@ -1,7 +1,6 @@
 import warnings
 warnings.filterwarnings("ignore")
 
-# --- SILENCE THE NOISE ---
 import sys
 import traceback
 
@@ -24,7 +23,6 @@ class CleanStderr:
     def flush(self): self.stream.flush()
 
 sys.stderr = CleanStderr(sys.stderr)
-# --- END SILENCER ---
 
 import eventlet
 eventlet.monkey_patch()
@@ -46,7 +44,7 @@ from flask_socketio import SocketIO
 app = Flask(__name__)
 socketio = SocketIO(app, cors_allowed_origins='*', async_mode='eventlet', ping_timeout=60)
 
-# --- IMAGE OVERLAY FUNCTION ---
+# image overlay
 def overlay_image_alpha(img, img_overlay, x, y, width, height):
     try:
         if width <= 0 or height <= 0: return img
@@ -82,7 +80,7 @@ def overlay_image_alpha(img, img_overlay, x, y, width, height):
     except Exception:
         return img
 
-# --- GESTURE LOGIC ---
+# gesture logic
 def is_hand_open(landmarks):
     wrist = landmarks[0]
     fingers = [(8, 6), (12, 10), (16, 14), (20, 18)]
@@ -96,7 +94,7 @@ def is_hand_open(landmarks):
             open_count += 1
     return open_count >= 3
 
-# --- PLANT SYSTEM ---
+# plant system
 class PlantSystem:
     def __init__(self, screen_width, screen_height):
         self.w = screen_width
@@ -107,8 +105,7 @@ class PlantSystem:
         self.plant_heights = np.zeros(self.num_slots, dtype=np.float32)
         self.plant_types = [-1] * self.num_slots
         
-        # --- UPDATE: DOUBLED HEIGHT ---
-        # Plants can now grow between 200px and 500px tall!
+        #plant height
         self.max_heights = np.random.randint(200, 500, size=self.num_slots)
         
         self.loaded_images = []
@@ -127,7 +124,7 @@ class PlantSystem:
                 data = json.load(f)
 
             count = 0
-            # --- UPDATE: REDUCED LIMIT TO 50 ---
+            # max plant load from the database
             max_load = 50 
 
             for plant_id, plant_info in data.items():
@@ -210,7 +207,7 @@ class PlantSystem:
                 
                 frame = overlay_image_alpha(frame, src_img, x_center, self.h - 5, draw_w, draw_h)
 
-# --- PARTICLE CLASS ---
+# particle class
 class Particle:
     def __init__(self, x, y, element_type, velocity=None):
         self.x = x
@@ -292,7 +289,7 @@ class Particle:
             pts = pts.reshape((-1, 1, 2))
             cv2.fillPoly(frame, [pts], self.color); cv2.polylines(frame, [pts], True, (30, 30, 30), 1)
 
-# --- VIDEO PROCESSING ---
+# video processing
 def background_thread():
     print("Avatar Stream Active (Mega Garden)")
 

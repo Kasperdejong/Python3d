@@ -1,7 +1,6 @@
 import warnings
 warnings.filterwarnings("ignore")
 
-# --- SILENCE THE NOISE ---
 import sys
 import traceback
 
@@ -24,7 +23,6 @@ class CleanStderr:
     def flush(self): self.stream.flush()
 
 sys.stderr = CleanStderr(sys.stderr)
-# --- END SILENCER ---
 
 import eventlet
 eventlet.monkey_patch()
@@ -46,7 +44,6 @@ from flask_socketio import SocketIO
 app = Flask(__name__)
 socketio = SocketIO(app, cors_allowed_origins='*', async_mode='eventlet', ping_timeout=60)
 
-# --- IMAGE OVERLAY FUNCTION ---
 def overlay_image_alpha(img, img_overlay, x, y, width, height):
     try:
         if width <= 0 or height <= 0: return img
@@ -82,7 +79,6 @@ def overlay_image_alpha(img, img_overlay, x, y, width, height):
     except Exception:
         return img
 
-# --- GESTURE LOGIC ---
 def is_hand_open(landmarks):
     wrist = landmarks[0]
     fingers = [(8, 6), (12, 10), (16, 14), (20, 18)]
@@ -96,7 +92,6 @@ def is_hand_open(landmarks):
             open_count += 1
     return open_count >= 3
 
-# --- PLANT SYSTEM ---
 class PlantSystem:
     def __init__(self, screen_width, screen_height):
         self.w = screen_width
@@ -191,7 +186,6 @@ class PlantSystem:
                     resized_plant = plant_float.astype(np.uint8)
                 frame = overlay_image_alpha(frame, resized_plant, x_center, self.h - 5, draw_w, draw_h)
 
-# --- PARTICLE CLASS ---
 class Particle:
     def __init__(self, x, y, element_type, velocity=None):
         self.x = x
@@ -216,11 +210,9 @@ class Particle:
     def update(self):
         self.life -= self.decay
         
-        # --- FIX: Apply Gravity to Water ---
         if self.element_type == "Water":
             self.vy += 0.5 
         
-        # --- FIX: ACTUALLY MOVE THE PARTICLE ---
         self.x += self.vx
         self.y += self.vy
 
@@ -242,7 +234,6 @@ class Particle:
             color = (col, col, col)
             cv2.circle(frame, (ix, iy), self.size, color, -1)
 
-# --- VIDEO PROCESSING ---
 def background_thread():
     print("Avatar Stream Active (Visualized Hands)")
 
@@ -268,11 +259,9 @@ def background_thread():
 
         def get_coords(landmark): return int(landmark.x * w), int(landmark.y * h)
 
-        # 1. RIGHT HAND (FIRE)
         if results.right_hand_landmarks:
             landmarks = results.right_hand_landmarks.landmark
             
-            # DRAW SKELETON (Yellow/Orange)
             for connection in hand_connections:
                 pt1 = get_coords(landmarks[connection[0]])
                 pt2 = get_coords(landmarks[connection[1]])
@@ -284,7 +273,6 @@ def background_thread():
                 dist = math.sqrt(dx*dx + dy*dy)
                 aim_vx = (dx / dist) * 30; aim_vy = (dy / dist) * 30
                 
-                # Spawn Fire
                 for connection in hand_connections:
                     pt1 = get_coords(landmarks[connection[0]]); pt2 = get_coords(landmarks[connection[1]])
                     mid_x = int(pt1[0] + (pt2[0] - pt1[0]) * random.random())
@@ -292,22 +280,13 @@ def background_thread():
                     particles.append(Particle(mid_x, mid_y, "Fire", velocity=(aim_vx, aim_vy)))
                 for lm in landmarks: particles.append(Particle(*get_coords(lm), "Fire", velocity=(aim_vx, aim_vy)))
 
-        # 2. LEFT HAND (WATER)
         if results.left_hand_landmarks:
             landmarks = results.left_hand_landmarks.landmark
-            
-            # # DRAW SKELETON (Blue/Cyan)
-            # for connection in hand_connections:
-            #     pt1 = get_coords(landmarks[connection[0]])
-            #     pt2 = get_coords(landmarks[connection[1]])
-            #     cv2.line(frame, pt1, pt2, (255, 255, 0), 2)
 
             if is_hand_open(landmarks):
                 for lm in landmarks: 
-                    # Spawn Water
                     particles.append(Particle(*get_coords(lm), "Water"))
 
-        # 3. DRAW & UPDATE
         garden.draw(frame)
         frame = cv2.convertScaleAbs(frame, alpha=0.8, beta=-10)
         
@@ -372,6 +351,6 @@ if __name__ == "__main__":
     cert_exists = os.path.exists('cert.pem') and os.path.exists('key.pem')
     ssl_args = {'certfile': 'cert.pem', 'keyfile': 'key.pem'} if cert_exists else {}
     protocol = "https" if cert_exists else "http"
-    print(f"🚀 SERVER STARTED at {protocol}://{ip}:5000")
+    print(f"SERVER STARTED at {protocol}://{ip}:5000")
     try: socketio.run(app, host='0.0.0.0', port=5000, **ssl_args)
     except KeyboardInterrupt: os._exit(0)

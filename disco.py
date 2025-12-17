@@ -1,7 +1,6 @@
 import warnings
 warnings.filterwarnings("ignore")
 
-# --- SILENCE THE NOISE ---
 import sys
 import traceback
 
@@ -24,7 +23,6 @@ class CleanStderr:
     def flush(self): self.stream.flush()
 
 sys.stderr = CleanStderr(sys.stderr)
-# --- END SILENCER ---
 
 import eventlet
 eventlet.monkey_patch()
@@ -79,7 +77,7 @@ def get_random_neon_color():
     bgr_color = cv2.cvtColor(hsv_color, cv2.COLOR_HSV2BGR)[0][0]
     return (int(bgr_color[0]), int(bgr_color[1]), int(bgr_color[2]))
 
-# --- VIDEO PROCESSING ---
+# video processing
 def background_thread():
     print(f"🕺 DISCO MODE STARTED. Dark Mode is: {DARK_MODE}")
 
@@ -104,14 +102,9 @@ def background_thread():
 
         frame = cv2.flip(frame, 1)
 
-        # --- KEY FIX: PROCESS AI ON ORIGINAL IMAGE ---
-        # We process the frame BEFORE darkening it. 
-        # This gives MediaPipe maximum detail for tracking.
         rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         results = segmenter.process(rgb_frame)
 
-        # --- APPLY DARKNESS EFFECT (OPTIONAL) ---
-        # We only darken the frame NOW, after the AI has already looked at it.
         if DARK_MODE:
             frame = cv2.convertScaleAbs(frame, alpha=0.85, beta=-20)
 
@@ -246,7 +239,7 @@ if __name__ == "__main__":
     ssl_args = {'certfile': 'cert.pem', 'keyfile': 'key.pem'} if cert_exists else {}
     protocol = "https" if cert_exists else "http"
     
-    print(f"🚀 SERVER STARTED at {protocol}://{ip}:5000")
+    print(f"SERVER STARTED at {protocol}://{ip}:5000")
     try: 
         socketio.run(app, host='0.0.0.0', port=5000, **ssl_args)
     except KeyboardInterrupt: 

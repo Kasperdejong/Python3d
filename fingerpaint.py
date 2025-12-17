@@ -24,11 +24,11 @@ from flask_socketio import SocketIO
 app = Flask(__name__)
 socketio = SocketIO(app, cors_allowed_origins='*', async_mode='eventlet')
 
-# --- CONFIGURATION ---
+# config
 MAX_HANDS = 4  
 DRAW_THRESHOLD = 80 
 
-# --- UI CLASS ---
+# UI
 class ColorHeader:
     def __init__(self, w):
         self.colors = [
@@ -63,7 +63,7 @@ class ColorHeader:
                 return self.colors[idx][0]
         return None
 
-# --- STICKY HAND LOGIC ---
+# stickyhand logic
 class StickyHand:
     def __init__(self, id, start_color):
         self.id = id
@@ -127,7 +127,7 @@ def solve_hand_assignment(slots, detections):
         det = detections[det_idx]
         slot = slots[slot_idx]
         
-        # FIX: If this slot was NOT active previously, reset the drawing line
+        # If this slot was NOT active previously, reset the drawing line
         # so we don't draw a laser beam from 0,0
         if not slot.active:
             slot.x = det['x']
