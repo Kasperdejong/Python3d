@@ -22,7 +22,7 @@ from flask_socketio import SocketIO
 app = Flask(__name__)
 socketio = SocketIO(app, cors_allowed_origins='*', async_mode='eventlet')
 
-# --- LOGIC CLASS ---
+# logic
 class PuppetLogic:
     def __init__(self, start_x):
         self.x = start_x
@@ -41,7 +41,7 @@ class PuppetLogic:
             self.x += np.random.uniform(-0.01, 0.01)
             self.y += np.random.uniform(-0.01, 0.01)
 
-# --- GESTURE MATH ---
+# gesture math
 def get_finger_status(lm_list):
     fingers = []
     tips = [8, 12, 16, 20]; pips = [6, 10, 14, 18]
@@ -66,7 +66,7 @@ def detect_gesture(lm_list):
     if count >= 3: return "HAPPY"
     return "NEUTRAL"
 
-# --- SMART TRACKING ALGORITHM ---
+# smart tracking to detect hands
 def assign_hands_to_puppets(puppets, new_hands):
     if len(new_hands) == 0: return 
 
@@ -95,7 +95,7 @@ def assign_hands_to_puppets(puppets, new_hands):
             puppets[1].update(h1['x'], h1['y'], h1['gesture'])
             puppets[0].update(h2['x'], h2['y'], h2['gesture'])
 
-# --- MAIN LOOP ---
+# main loop
 puppets = [PuppetLogic(0.25), PuppetLogic(0.75)]
 
 def background_thread():
@@ -129,7 +129,7 @@ def background_thread():
         # 1. Update positions based on sticky logic
         assign_hands_to_puppets(puppets, detected_hands)
 
-        # 2. CHECK TIMEOUTS (The Idle Fix)
+        # 2. check timeouts (The Idle Fix)
         # If a puppet hasn't been updated in 0.5 seconds, reset state
         current_time = time.time()
         for p in puppets:
@@ -154,7 +154,7 @@ def background_thread():
         
         eventlet.sleep(0.015)
 
-# --- FLASK SETUP ---
+# setup for flask and sockets
 def get_ip():
     try: s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM); s.connect(("8.8.8.8", 80)); return s.getsockname()[0]
     except: return "127.0.0.1"

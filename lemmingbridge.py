@@ -25,7 +25,7 @@ from flask_socketio import SocketIO
 app = Flask(__name__)
 socketio = SocketIO(app, cors_allowed_origins='*', async_mode='eventlet')
 
-# --- 1. STABILIZER ---
+# stabilizer
 class SimpleStabilizer:
     def __init__(self, alpha=0.5):
         self.alpha = alpha
@@ -42,7 +42,7 @@ class SimpleStabilizer:
         self.prev_landmarks[hand_index][lm_id] = (smooth_x, smooth_y)
         return int(smooth_x), int(smooth_y)
 
-# --- MATH ---
+# Math and stuff
 def dist(p1, p2): return math.hypot(p1[0]-p2[0], p1[1]-p2[1])
 
 # Distance from point (px, py) to line segment (p1, p2)
@@ -70,7 +70,7 @@ def get_line_x(p1, p2, y):
     m_inv = (x2 - x1) / (y2 - y1)
     return x1 + m_inv * (y - y1)
 
-# --- PIXEL ART ---
+# pixel art
 def draw_pixel_lemming(frame, x, y, facing_right, frame_idx, color):
     s = 4; ix, iy = int(x), int(y)
     sprite_stand = [[0,3,3,3,3,3,0,0],[0,3,3,3,3,3,0,0],[0,0,1,1,1,0,0,0],[0,1,1,2,1,1,0,0], 
@@ -101,7 +101,7 @@ def draw_dotted_line(img, pt1, pt2, color, thickness=1, gap=15):
         if int(curr // gap) % 2 == 0: cv2.line(img, p1_, p2_, color, thickness)
         curr += gap
 
-# --- UI ---
+# UI
 class Button:
     def __init__(self, x, y, w, h, text, color):
         self.rect = (x, y, w, h); self.text = text; self.color = color
@@ -134,7 +134,7 @@ class Button:
                 if self.cooldown == 0: self.cooldown = 30; triggered = True
         return triggered
 
-# --- WALKER (SOLID PHYSICS) ---
+# walker
 class Walker:
     def __init__(self, start_x, start_y):
         self.x, self.y = start_x, start_y
@@ -149,7 +149,7 @@ class Walker:
         if self.state != "ALIVE": return
         self.frame_count += 1
 
-        # --- STEP 1: HORIZONTAL MOVEMENT & WALL CHECKS ---
+        # horizontal movement & wall checks
         if self.x < 10: self.x = 10; self.vx = abs(self.vx)
         next_x = self.x + self.vx
         hit_wall = False
@@ -168,7 +168,7 @@ class Walker:
         if hit_wall: self.vx *= -1
         else: self.x = next_x
 
-        # --- STEP 2: VERTICAL MOVEMENT & FLOOR CHECKS ---
+        # vertical movement & floor checks
         if self.on_ground:
             found_floor_below = False; best_y = 99999
             for p1, p2 in platforms:
@@ -206,9 +206,9 @@ class Walker:
         if self.state == "ALIVE":
             draw_pixel_lemming(frame, self.x, self.y, self.vx > 0, self.frame_count, self.color)
 
-# --- MAIN ---
+# main stuff
 def background_thread():
-    print("🏆 Lemming Solid Physics Edition")
+    print("Lemmings must cross the bridge!")
     mp_hands = mp.solutions.hands
     hands = mp_hands.Hands(min_detection_confidence=0.7, min_tracking_confidence=0.7, max_num_hands=2)
     stabilizer = SimpleStabilizer(alpha=0.5) 
@@ -224,7 +224,7 @@ def background_thread():
     count_spawn = 0; MAX_LEM = 10
     s_saved = 0; s_died = 0
 
-    # UI Buttons - CENTERED
+    # UI Buttons centered
     b_w, b_h, gap = 120, 50, 20
     total_w = 3 * b_w + 2 * gap
     start_x = (w - total_w) // 2

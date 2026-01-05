@@ -95,8 +95,6 @@ def solve_hand_assignment(slots, detections):
     """
     Greedy Distance Matcher (Fixed for Drawing)
     """
-    # NOTE: We DO NOT reset 'active' here anymore. 
-    # We only mark them lost if they are not assigned at the end.
 
     possible_matches = []
     
@@ -197,7 +195,7 @@ def background_thread():
             index_up = lm_list[8][1] < lm_list[6][1]
             middle_up = lm_list[12][1] < lm_list[10][1]
 
-            # A. SELECTION MODE (Two fingers up)
+            # A. Selection mode (Two fingers up)
             if index_up and middle_up:
                 hand.reset_draw_pos() 
                 cv2.rectangle(frame, (x1-25, y1-25), (x2+25, y1+25), hand.color, 2)
@@ -207,7 +205,7 @@ def background_thread():
                 if new_col is not None:
                     hand.color = new_col
 
-            # B. DRAW MODE (Index only)
+            # B. Draw mode (Index finger only)
             elif index_up and not middle_up:
                 cv2.circle(frame, (x1, y1), 10, hand.color, -1)
                 
@@ -221,7 +219,7 @@ def background_thread():
                 if dist < DRAW_THRESHOLD:
                     color = hand.color
                     thickness = 40 if color == (0,0,0) else 15
-                    # DRAWING HAPPENS HERE
+                    # Drawing happens here
                     cv2.line(img_canvas, (hand.prev_x, hand.prev_y), (x1, y1), color, thickness)
                 else:
                     hand.reset_draw_pos()
@@ -229,7 +227,7 @@ def background_thread():
                 # Update Previous for next frame
                 hand.prev_x, hand.prev_y = x1, y1
 
-            # C. IDLE
+            # C. Idle
             else:
                 hand.reset_draw_pos()
 

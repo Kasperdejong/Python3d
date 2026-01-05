@@ -41,14 +41,10 @@ from flask_socketio import SocketIO
 app = Flask(__name__)
 socketio = SocketIO(app, cors_allowed_origins='*', async_mode='eventlet', ping_timeout=60)
 
-# ==========================================
-# 🎛️ SETTINGS - CHANGE THIS TO TOGGLE DARKNESS
-# ==========================================
+
 DARK_MODE = True  # Set to False for normal brightness
-# ==========================================
 
-# --- DISCO LOGIC CLASSES ---
-
+# disco logic classes
 class DiscoEcho:
     def __init__(self, contours, color):
         self.contours = contours
@@ -137,7 +133,7 @@ def background_thread():
                 alive_echoes.append(echo)
         echo_trails = alive_echoes
 
-        # 3. MASKING (Behind User)
+        # 3. Masking (Behind User)
         if binary_mask is not None:
             mask_inv = cv2.bitwise_not(binary_mask)
             glow_layer_behind = cv2.bitwise_and(glow_layer, glow_layer, mask=mask_inv)

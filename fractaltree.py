@@ -2,8 +2,6 @@ import warnings
 warnings.filterwarnings("ignore")
 
 import sys, traceback, os, time, math, random
-
-# --- STABILITY: Error Silencer ---
 _original_print_exception = traceback.print_exception
 def silent_ssl_print_exception(etype, value, tb, limit=None, file=None, chain=True):
     err_str = str(value)
@@ -32,7 +30,7 @@ thread = None
 BARK_COLOR = (19, 69, 139)      # Dark Brown
 HIGHLIGHT_COLOR = (40, 90, 160) # Light Brown
 
-# Autumn Colors (BGR Format)
+# autumn colors (BGR Format)
 LEAF_COLOR = (40, 80, 60)       # Dark Olive Green / Brownish
 LEAF_SHADOW = (20, 40, 30)      # Dark Shadow
 FLOWER_COLORS = [
@@ -228,7 +226,7 @@ class SunOrb:
         cv2.circle(frame, (int(self.x), int(self.y)), self.r+5, (100,255,255), -1)
         cv2.circle(frame, (int(self.x), int(self.y)), self.r, (255,255,255), -1)
 
-# --- MAIN SERVER ---
+# main server
 def background_thread():
     print("Autumn bloom engine started")
     mp_pose = mp.solutions.pose

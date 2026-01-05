@@ -1,16 +1,15 @@
 import warnings
 warnings.filterwarnings("ignore")
 
-# --- SILENCE NOISE ---
 import sys, traceback, logging
-import shutil # Added to check for installed tools
+import shutil 
 
 log = logging.getLogger('werkzeug'); log.setLevel(logging.ERROR)
 def silent_ssl(etype, value, tb, limit=None, file=None, chain=True):
     if "SSLV3" in str(value) or "HTTP_REQUEST" in str(value): return
     traceback.print_exception(etype, value, tb, limit, file, chain)
 traceback.print_exception = silent_ssl
-# --- END SILENCE ---
+ 
 
 import eventlet
 eventlet.monkey_patch()
@@ -31,7 +30,7 @@ from flask_socketio import SocketIO
 app = Flask(__name__)
 socketio = SocketIO(app, cors_allowed_origins='*', async_mode='eventlet')
 
-# --- SYSTEM CONTROL MANAGER ---
+# System control manager
 class SystemControlManager:
     def __init__(self):
         self.target_vol = 50
@@ -58,7 +57,7 @@ class SystemControlManager:
     def _volume_worker(self):
         last_vol = -1
         while self.running:
-            # HYSTERESIS: Prevent flickering between 49/50
+            # Prevent flickering between 49/50 (Fun fact: this is called hysteresis apparently)
             diff = abs(self.target_vol - last_vol)
             if diff >= 2 or (diff > 0 and (self.target_vol in [0, 100])):
                 try:
@@ -88,7 +87,7 @@ class SystemControlManager:
 
 sys_manager = SystemControlManager()
 
-# --- PROCESSING ---
+# Processing
 def background_thread():
     print("Stable Gesture System Active")
     
@@ -156,14 +155,14 @@ def background_thread():
                     target_y = cy + s['offset']
                     target_y = max(bar_top, min(bar_bottom, target_y))
                     
-                    # FIX 1: Heavy Smoothing (0.1 instead of 0.3)
+                    # smoothing
                     s['bar'] = (0.9 * s['bar']) + (0.1 * target_y)
                     
                     # Calculate exact percentage float
                     pct = np.interp(s['bar'], [bar_top, bar_bottom], [100, 0])
                     s['val'] = pct
 
-                    # FIX 2: Stable Display Value (Deadzone)
+                    # Stable Display Value (Deadzone)
                     if abs(pct - s['display_val']) > 0.8:
                         s['display_val'] = int(round(pct))
 
