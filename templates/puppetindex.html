@@ -7,10 +7,21 @@
 
 <body>
 
+    <!-- TOP LEFT: Status UI -->
     <div id="ui">
         P1 (Left): <span id="st1">WAITING</span><br>
         P2 (Right): <span id="st2">WAITING</span>
     </div>
+
+    <!-- BOTTOM LEFT: Instructions -->
+    <div id="instructions">
+        <b>CONTROLS:</b><br>
+        🖐 Open Hand: Happy<br>
+        ☝ Point One Finger: Dance<br>
+        ✊ Fist: Angry<br>
+        👌 Pinch: Shy
+    </div>
+
     <canvas id="gameCanvas"></canvas>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
@@ -28,21 +39,38 @@
         resize();
 
         // --- 1. ASSETS ---
-        const sprites = {};
-        function load(name, url) {
-            const img = new Image(); img.src = url; sprites[name] = img;
+        const playerAssets = {
+            0: {}, // Player 1 (Original)
+            1: {}  // Player 2 (SockGuy)
+        };
+
+        function load(pid, name, url) {
+            const img = new Image();
+            img.src = url;
+            playerAssets[pid][name] = img;
         }
 
-        load('NEUTRAL', '/assets/handpuppet_idle.png');
-        load('HAPPY', '/assets/handpuppet_happy.png');
-        load('ANGRY', '/assets/handpuppet_angry.png');
-        load('SHY', '/assets/handpuppet_shy.png');
-        for (let i = 0; i < DANCE_COUNT; i++) load(`DANCE_${i}`, `/assets/pixel_dance_${i}.png`);
+        // --- LOAD PLAYER 1 ASSETS ---
+        load(0, 'NEUTRAL', '/assets/handpuppet_idle.png');
+        load(0, 'HAPPY', '/assets/handpuppet_happy.png');
+        load(0, 'ANGRY', '/assets/handpuppet_angry.png');
+        load(0, 'SHY', '/assets/handpuppet_shy.png');
+        for (let i = 0; i < DANCE_COUNT; i++) load(0, `DANCE_${i}`, `/assets/pixel_dance_${i}.png`);
 
-        // --- 2. DATA ---
+        // --- LOAD PLAYER 2 ASSETS ---
+        load(1, 'NEUTRAL', '/assets/sockguy_idle.png');
+        load(1, 'HAPPY', '/assets/sockguy_happy.png');
+        load(1, 'ANGRY', '/assets/sockguy_angry.png');
+        load(1, 'SHY', '/assets/sockguy_shy.png');
+        for (let i = 0; i < DANCE_COUNT; i++) load(1, `DANCE_${i}`, `/assets/sock_dance_${i}.png`);
+
+        // --- 2. DATA HANDLING ---
         let activeBackground = null;
         let pData = [];
-        let danceIdx = 0;
+
+        // We use a global tick counter instead of a simple 0-6 loop
+        // so we can calculate different speeds for different players.
+        let globalTick = 0;
 
         socket.on('video_frame', (arrayBuffer) => {
             const blob = new Blob([arrayBuffer], { type: 'image/jpeg' });
@@ -57,12 +85,16 @@
 
         socket.on('puppet_data', (dataList) => {
             pData = dataList;
-            if (pData[0]) st1.innerText = pData[0].state;
-            if (pData[1]) st2.innerText = pData[1].state;
+            if (pData[0]) st1.innerText = "Original: " + pData[0].state;
+            if (pData[1]) st2.innerText = "SockGuy: " + pData[1].state;
         });
 
         // --- 3. RENDER LOOP ---
-        setInterval(() => { danceIdx = (danceIdx + 1) % DANCE_COUNT; }, 100);
+
+        // Update the tick every 100ms
+        setInterval(() => {
+            globalTick++;
+        }, 100);
 
         function draw() {
             ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -80,22 +112,36 @@
 
             // B. Draw Puppets
             pData.forEach(player => {
+                const myAssets = playerAssets[player.id] || playerAssets[0];
                 let key = player.state;
-                if (key === 'DANCING') key = `DANCE_${danceIdx}`;
 
-                let sprite = sprites[key];
-                if (!sprite || !sprite.complete || sprite.naturalWidth === 0) sprite = sprites['NEUTRAL'];
-                if (!sprite || !sprite.complete || sprite.naturalWidth === 0) sprite = sprites['HAPPY'];
+                if (key === 'DANCING') {
+                    if (player.id === 1) {
+                        // PLAYER 2: SockGuy (50% Speed)
+                        // divide tick by 2, floor it, then modulo
+                        const slowFrame = Math.floor(globalTick / 1.25) % DANCE_COUNT;
+                        key = `DANCE_${slowFrame}`;
+                    } else {
+                        // PLAYER 1: Original (Normal Speed 100%)
+                        const normalFrame = globalTick % DANCE_COUNT;
+                        key = `DANCE_${normalFrame}`;
+                    }
+                }
 
+                // Get Sprite with Fallbacks
+                let sprite = myAssets[key];
+                if (!sprite || !sprite.complete || sprite.naturalWidth === 0) sprite = myAssets['NEUTRAL'];
+                if (!sprite || !sprite.complete || sprite.naturalWidth === 0) sprite = myAssets['HAPPY'];
+
+                // Draw
                 if (sprite && sprite.complete && sprite.naturalWidth > 0) {
                     const px = player.x * cw;
                     const py = player.y * ch;
-                    const size = cw * 0.25;
+                    const size = cw * 0.30;
                     const aspect = sprite.width / sprite.height;
 
                     if (aspect > 0) {
                         const h = size / aspect;
-                        // Draw with opacity if they are just placeholders (Optional)
                         ctx.drawImage(sprite, px - size / 2, py - h / 2, size, h);
                     }
                 }
@@ -115,6 +161,7 @@
             justify-content: center;
             align-items: center;
             height: 100vh;
+            font-family: sans-serif;
         }
 
         canvas {
@@ -131,12 +178,32 @@
             top: 20px;
             left: 20px;
             color: white;
-            font-family: sans-serif;
             background: rgba(0, 0, 0, 0.5);
             padding: 10px;
             border-radius: 5px;
             pointer-events: none;
             z-index: 10;
+        }
+
+        #instructions {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            color: rgba(255, 255, 255, 0.9);
+            background: rgba(0, 0, 0, 0.3);
+            /* Slight background for readability */
+            padding: 15px;
+            border-radius: 8px;
+            font-size: 16px;
+            line-height: 1.5;
+            pointer-events: none;
+            z-index: 10;
+        }
+
+        #instructions b {
+            color: #FFD700;
+            /* Gold color for header */
+            font-size: 18px;
         }
     </style>
 </body>
