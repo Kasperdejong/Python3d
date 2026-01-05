@@ -15,6 +15,8 @@ It is best practice to use a virtual environment so libraries don't mess up your
 # On macOS / Linux:
 
 python3 -m venv venv
+
+Run this if you've already created it once.
 source venv/bin/activate
 
 # On Windows:
